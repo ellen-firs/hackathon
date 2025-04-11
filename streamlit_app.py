@@ -1,41 +1,86 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 
-# Заголовок
+st.set_page_config(page_title="Анализ теплопотребления", layout="wide")
+
 st.title("📊 Анализ потребления тепловой энергии")
 
-# Загрузка данных
-uploaded_file = st.file_uploader("Загрузите файл с данными", type=["csv", "txt"])
+# Загрузка CSV
+uploaded_file = st.file_uploader("Загрузите CSV или TXT файл с данными", type=["csv", "txt"])
+
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+    try:
+        # Попытка чтения с кодировкой cp1251
+        df = pd.read_csv(uploaded_file, encoding="cp1251", sep=",")
+        st.success("✅ Файл успешно загружен!")
 
-    st.subheader("Данные")
-    st.dataframe(df)
+        # Проверка и отображение таблицы
+        st.subheader("📋 Исходные данные")
+        st.dataframe(df.head(50), use_container_width=True)
 
-    # Фильтры
-    year = st.selectbox("Год", sorted(df["Год"].dropna().unique()))
-    month = st.selectbox("Месяц", sorted(df["Месяц"].dropna().unique()))
-    district = st.selectbox("Район", sorted(df["Район"].dropna().unique()))
+        # -------------------
+        # ФИЛЬТРЫ
+        # -------------------
+        st.sidebar.header("🔎 Фильтры")
 
-    filtered_df = df[
-        (df["Год"] == year) &
-        (df["Месяц"] == month) &
-        (df["Район"] == district)
-    ]
+        year_options = sorted(df["Год"].dropna().unique())
+        year = st.sidebar.selectbox("Год", year_options)
 
-    st.subheader("Отфильтрованные данные")
-    st.dataframe(filtered_df)
+        month_options = sorted(df[df["Год"] == year]["Месяц"].dropna().unique())
+        month = st.sidebar.selectbox("Месяц", month_options)
 
-    # График потребления
-    st.subheader("График потребления")
-    st.line_chart(filtered_df[["Текущее потребление, Гкал"]])
+        district_options = df["Район"].dropna().unique()
+        district = st.sidebar.multiselect("Район", district_options, default=district_options)
 
-    # Карта
-    st.subheader("Карта объектов")
-    st.map(filtered_df[["Широта", "Долгота"]].dropna())
+        type_options = df["Тип объекта"].dropna().unique()
+        building_type = st.sidebar.multiselect("Тип объекта", type_options, default=type_options)
 
-    # Аномалии
-    st.subheader("🚨 Аномалии (нулевые значения)")
-    anomalies = filtered_df[filtered_df["Текущее потребление, Гкал"] == 0]
-    st.dataframe(anomalies)
+        filtered_df = df[
+            (df["Год"] == year) &
+            (df["Месяц"] == month) &
+            (df["Район"].isin(district)) &
+            (df["Тип объекта"].isin(building_type))
+        ]
+
+        st.subheader(f"📂 Отфильтрованные данные ({len(filtered_df)} записей)")
+        st.dataframe(filtered_df, use_container_width=True)
+
+        # -------------------
+        # ГРАФИК потребления
+        # -------------------
+        st.subheader("📈 График потребления тепловой энергии")
+
+        if "Текущее потребление, Гкал" in filtered_df.columns:
+            chart_data = filtered_df[["Упрощенный адрес", "Текущее потребление, Гкал"]].dropna()
+            chart_data = chart_data.sort_values("Текущее потребление, Гкал", ascending=False).head(20)
+            st.bar_chart(chart_data.set_index("Упрощенный адрес"))
+        else:
+            st.warning("Колонка 'Текущее потребление, Гкал' отсутствует в данных.")
+
+        # -------------------
+        # КАРТА объектов
+        # -------------------
+        st.subheader("🗺️ Карта объектов с координатами")
+
+        if "Широта" in df.columns and "Долгота" in df.columns:
+            st.map(filtered_df[["Широта", "Долгота"]].dropna())
+        else:
+            st.warning("В данных отсутствуют координаты (широта/долгота).")
+
+        # -------------------
+        # АНОМАЛИИ
+        # -------------------
+        st.subheader("🚨 Аномалии в потреблении")
+
+        # Нулевые потребления
+        zero_df = filtered_df[filtered_df["Текущее потребление, Гкал"] == 0]
+        if not zero_df.empty:
+            st.error(f"🔻 Найдено {len(zero_df)} объектов с **нулевым потреблением**:")
+            st.dataframe(zero_df, use_container_width=True)
+        else:
+            st.success("✅ Нулевых значений не найдено.")
+
+    except Exception as e:
+        st.error(f"❌ Ошибка при загрузке файла: {e}")
+else:
+    st.info("⬆️ Загрузите CSV или TXT файл для начала анализа.")
